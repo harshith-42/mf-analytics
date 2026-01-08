@@ -32,17 +32,6 @@ type Config struct {
 	Windows []WindowConfig
 }
 
-func DefaultConfig() Config {
-	return Config{
-		Now: time.Now,
-		Windows: []WindowConfig{
-			{Type: WindowSecond, Duration: time.Second, Limit: 2},
-			{Type: WindowMinute, Duration: time.Minute, Limit: 50},
-			{Type: WindowHour, Duration: time.Hour, Limit: 300},
-		},
-	}
-}
-
 type Limiter struct {
 	pool *pgxpool.Pool
 	cfg  Config
