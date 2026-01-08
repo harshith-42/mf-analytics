@@ -1,0 +1,15 @@
+http_addr: ":8080"
+
+database_url: ""
+
+rate_limiter:
+  windows:
+    - type: "second"
+      duration: "1s"
+      limit: 2
+    - type: "minute"
+      duration: "1m"
+      limit: 50
+    - type: "hour"
+      duration: "1h"
+      limit: 300
