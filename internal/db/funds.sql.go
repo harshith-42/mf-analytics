@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countFundsByCategory = `-- name: CountFundsByCategory :one
+SELECT COUNT(*)::bigint
+FROM funds
+WHERE category = $1
+`
+
+func (q *Queries) CountFundsByCategory(ctx context.Context, category string) (int64, error) {
+	row := q.db.QueryRow(ctx, countFundsByCategory, category)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getFund = `-- name: GetFund :one
 SELECT scheme_code, scheme_name, amc, category, inception_date, created_at, updated_at
 FROM funds

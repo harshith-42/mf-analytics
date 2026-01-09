@@ -3,8 +3,10 @@ module mf-analytics-service
 go 1.21.12
 
 require (
+	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.5.4
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/shopspring/decimal v1.3.1
 	gopkg.in/yaml.v3 v3.0.1
 )

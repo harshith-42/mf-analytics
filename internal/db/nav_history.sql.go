@@ -72,6 +72,38 @@ func (q *Queries) ListNavHistoryBetween(ctx context.Context, arg ListNavHistoryB
 	return items, nil
 }
 
+const listNavHistoryForScheme = `-- name: ListNavHistoryForScheme :many
+SELECT scheme_code, nav_date, nav_value, created_at
+FROM nav_history
+WHERE scheme_code = $1
+ORDER BY nav_date ASC
+`
+
+func (q *Queries) ListNavHistoryForScheme(ctx context.Context, schemeCode string) ([]NavHistory, error) {
+	rows, err := q.db.Query(ctx, listNavHistoryForScheme, schemeCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NavHistory{}
+	for rows.Next() {
+		var i NavHistory
+		if err := rows.Scan(
+			&i.SchemeCode,
+			&i.NavDate,
+			&i.NavValue,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertNavHistory = `-- name: UpsertNavHistory :exec
 INSERT INTO nav_history (scheme_code, nav_date, nav_value, created_at)
 VALUES ($1, $2, $3, NOW())

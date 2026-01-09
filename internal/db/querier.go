@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	ClaimNextSyncState(ctx context.Context) (SyncState, error)
+	CountFundsByCategory(ctx context.Context, category string) (int64, error)
 	CountSyncStateByStatus(ctx context.Context) ([]CountSyncStateByStatusRow, error)
 	CreateSyncRun(ctx context.Context, arg CreateSyncRunParams) error
 	FinishSyncRunFailure(ctx context.Context, arg FinishSyncRunFailureParams) error
@@ -25,10 +26,13 @@ type Querier interface {
 	InitSyncStateIfMissing(ctx context.Context, schemeCode string) error
 	ListFunds(ctx context.Context, arg ListFundsParams) ([]Fund, error)
 	ListNavHistoryBetween(ctx context.Context, arg ListNavHistoryBetweenParams) ([]NavHistory, error)
+	ListNavHistoryForScheme(ctx context.Context, schemeCode string) ([]NavHistory, error)
 	ListSyncState(ctx context.Context) ([]SyncState, error)
 	RankFundsByMaxDrawdown(ctx context.Context, arg RankFundsByMaxDrawdownParams) ([]RankFundsByMaxDrawdownRow, error)
 	RankFundsByMedianReturn(ctx context.Context, arg RankFundsByMedianReturnParams) ([]RankFundsByMedianReturnRow, error)
+	RequeueStaleInProgressSyncState(ctx context.Context, lastAttemptAt pgtype.Timestamp) error
 	ResetAllSyncStateToPending(ctx context.Context) error
+	ResetEligibleIncrementalSyncStateToPending(ctx context.Context) error
 	UpdateSyncStateAttempt(ctx context.Context, arg UpdateSyncStateAttemptParams) error
 	UpdateSyncStateSuccess(ctx context.Context, arg UpdateSyncStateSuccessParams) error
 	UpsertFund(ctx context.Context, arg UpsertFundParams) error

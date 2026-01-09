@@ -5,23 +5,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Server struct {
 	pool *pgxpool.Pool
-	mux  *http.ServeMux
+	r    *chi.Mux
 	srv  *http.Server
 }
 
 func NewServer(pool *pgxpool.Pool) *Server {
 	s := &Server{
 		pool: pool,
-		mux:  http.NewServeMux(),
+		r:    chi.NewRouter(),
 	}
 	s.routes()
 	s.srv = &http.Server{
-		Handler:      s.mux,
+		Handler:      s.r,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

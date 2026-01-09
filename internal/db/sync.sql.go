@@ -209,6 +209,21 @@ func (q *Queries) ListSyncState(ctx context.Context) ([]SyncState, error) {
 	return items, nil
 }
 
+const requeueStaleInProgressSyncState = `-- name: RequeueStaleInProgressSyncState :exec
+UPDATE sync_state
+SET
+  status = 'PENDING',
+  updated_at = NOW()
+WHERE status = 'IN_PROGRESS'
+  AND last_attempt_at IS NOT NULL
+  AND last_attempt_at < $1
+`
+
+func (q *Queries) RequeueStaleInProgressSyncState(ctx context.Context, lastAttemptAt pgtype.Timestamp) error {
+	_, err := q.db.Exec(ctx, requeueStaleInProgressSyncState, lastAttemptAt)
+	return err
+}
+
 const resetAllSyncStateToPending = `-- name: ResetAllSyncStateToPending :exec
 UPDATE sync_state
 SET
@@ -219,6 +234,19 @@ WHERE status <> 'IN_PROGRESS'
 
 func (q *Queries) ResetAllSyncStateToPending(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, resetAllSyncStateToPending)
+	return err
+}
+
+const resetEligibleIncrementalSyncStateToPending = `-- name: ResetEligibleIncrementalSyncStateToPending :exec
+UPDATE sync_state
+SET
+  status = 'PENDING',
+  updated_at = NOW()
+WHERE status IN ('COMPLETED', 'FAILED')
+`
+
+func (q *Queries) ResetEligibleIncrementalSyncStateToPending(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, resetEligibleIncrementalSyncStateToPending)
 	return err
 }
 

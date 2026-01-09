@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"mf-analytics-service/internal/ratelimiter"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,4 +74,28 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) RateLimiterConfig() (ratelimiter.Config, error) {
+	if len(c.RateLimiter.Windows) == 0 {
+		return ratelimiter.DefaultConfig(), nil
+	}
+
+	windows := make([]ratelimiter.WindowConfig, 0, len(c.RateLimiter.Windows))
+	for _, w := range c.RateLimiter.Windows {
+		d, err := time.ParseDuration(w.Duration)
+		if err != nil || d <= 0 {
+			return ratelimiter.Config{}, fmt.Errorf("invalid rate limiter duration for %q: %q", w.Type, w.Duration)
+		}
+		windows = append(windows, ratelimiter.WindowConfig{
+			Type:     ratelimiter.WindowType(w.Type),
+			Duration: d,
+			Limit:    w.Limit,
+		})
+	}
+
+	return ratelimiter.Config{
+		Now:     time.Now,
+		Windows: windows,
+	}, nil
 }
