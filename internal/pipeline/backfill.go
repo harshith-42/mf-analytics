@@ -86,6 +86,10 @@ func (r *BackfillRunner) RunLatest(ctx context.Context) (processed bool, err err
 		switch run.RunType {
 		case "INCREMENTAL":
 			perSchemeErr = r.incrementalOne(ctx, st)
+		case "MANUAL":
+			// Manual trigger should be efficient: do incremental when possible,
+			// and fall back to backfill only if last_synced_date is NULL.
+			perSchemeErr = r.incrementalOne(ctx, st)
 		default:
 			// MANUAL and BACKFILL behave like full backfill.
 			perSchemeErr = r.backfillOne(ctx, st)
