@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const getFundAnalytics = `-- name: GetFundAnalytics :one
@@ -55,9 +56,18 @@ SELECT
   f.category,
   fa."window",
   fa.rolling_median,
-  fa.max_drawdown
+  fa.max_drawdown,
+  nav.nav_value AS current_nav,
+  nav.nav_date AS last_updated
 FROM fund_analytics fa
 JOIN funds f ON f.scheme_code = fa.scheme_code
+LEFT JOIN LATERAL (
+  SELECT nh.nav_value, nh.nav_date
+  FROM nav_history nh
+  WHERE nh.scheme_code = fa.scheme_code
+  ORDER BY nh.nav_date DESC
+  LIMIT 1
+) nav ON true
 WHERE f.category = $1
   AND fa."window" = $2
 ORDER BY fa.max_drawdown ASC NULLS LAST
@@ -71,13 +81,15 @@ type RankFundsByMaxDrawdownParams struct {
 }
 
 type RankFundsByMaxDrawdownRow struct {
-	SchemeCode    string         `json:"scheme_code"`
-	SchemeName    string         `json:"scheme_name"`
-	Amc           string         `json:"amc"`
-	Category      string         `json:"category"`
-	Window        string         `json:"window"`
-	RollingMedian pgtype.Numeric `json:"rolling_median"`
-	MaxDrawdown   pgtype.Numeric `json:"max_drawdown"`
+	SchemeCode    string          `json:"scheme_code"`
+	SchemeName    string          `json:"scheme_name"`
+	Amc           string          `json:"amc"`
+	Category      string          `json:"category"`
+	Window        string          `json:"window"`
+	RollingMedian pgtype.Numeric  `json:"rolling_median"`
+	MaxDrawdown   pgtype.Numeric  `json:"max_drawdown"`
+	CurrentNav    decimal.Decimal `json:"current_nav"`
+	LastUpdated   pgtype.Date     `json:"last_updated"`
 }
 
 func (q *Queries) RankFundsByMaxDrawdown(ctx context.Context, arg RankFundsByMaxDrawdownParams) ([]RankFundsByMaxDrawdownRow, error) {
@@ -97,6 +109,8 @@ func (q *Queries) RankFundsByMaxDrawdown(ctx context.Context, arg RankFundsByMax
 			&i.Window,
 			&i.RollingMedian,
 			&i.MaxDrawdown,
+			&i.CurrentNav,
+			&i.LastUpdated,
 		); err != nil {
 			return nil, err
 		}
@@ -116,9 +130,18 @@ SELECT
   f.category,
   fa."window",
   fa.rolling_median,
-  fa.max_drawdown
+  fa.max_drawdown,
+  nav.nav_value AS current_nav,
+  nav.nav_date AS last_updated
 FROM fund_analytics fa
 JOIN funds f ON f.scheme_code = fa.scheme_code
+LEFT JOIN LATERAL (
+  SELECT nh.nav_value, nh.nav_date
+  FROM nav_history nh
+  WHERE nh.scheme_code = fa.scheme_code
+  ORDER BY nh.nav_date DESC
+  LIMIT 1
+) nav ON true
 WHERE f.category = $1
   AND fa."window" = $2
 ORDER BY fa.rolling_median DESC NULLS LAST
@@ -132,13 +155,15 @@ type RankFundsByMedianReturnParams struct {
 }
 
 type RankFundsByMedianReturnRow struct {
-	SchemeCode    string         `json:"scheme_code"`
-	SchemeName    string         `json:"scheme_name"`
-	Amc           string         `json:"amc"`
-	Category      string         `json:"category"`
-	Window        string         `json:"window"`
-	RollingMedian pgtype.Numeric `json:"rolling_median"`
-	MaxDrawdown   pgtype.Numeric `json:"max_drawdown"`
+	SchemeCode    string          `json:"scheme_code"`
+	SchemeName    string          `json:"scheme_name"`
+	Amc           string          `json:"amc"`
+	Category      string          `json:"category"`
+	Window        string          `json:"window"`
+	RollingMedian pgtype.Numeric  `json:"rolling_median"`
+	MaxDrawdown   pgtype.Numeric  `json:"max_drawdown"`
+	CurrentNav    decimal.Decimal `json:"current_nav"`
+	LastUpdated   pgtype.Date     `json:"last_updated"`
 }
 
 func (q *Queries) RankFundsByMedianReturn(ctx context.Context, arg RankFundsByMedianReturnParams) ([]RankFundsByMedianReturnRow, error) {
@@ -158,6 +183,8 @@ func (q *Queries) RankFundsByMedianReturn(ctx context.Context, arg RankFundsByMe
 			&i.Window,
 			&i.RollingMedian,
 			&i.MaxDrawdown,
+			&i.CurrentNav,
+			&i.LastUpdated,
 		); err != nil {
 			return nil, err
 		}

@@ -72,6 +72,13 @@ SET
   updated_at = NOW()
 WHERE status <> 'IN_PROGRESS';
 
+-- name: ResetEligibleIncrementalSyncStateToPending :exec
+UPDATE sync_state
+SET
+  status = 'PENDING',
+  updated_at = NOW()
+WHERE status IN ('COMPLETED', 'FAILED');
+
 -- name: ClaimNextSyncState :one
 WITH candidate AS (
   SELECT scheme_code
@@ -88,3 +95,12 @@ SET
   updated_at = NOW()
 WHERE scheme_code IN (SELECT scheme_code FROM candidate)
 RETURNING scheme_code, last_synced_date, status, retry_count, last_error, last_attempt_at, updated_at;
+
+-- name: RequeueStaleInProgressSyncState :exec
+UPDATE sync_state
+SET
+  status = 'PENDING',
+  updated_at = NOW()
+WHERE status = 'IN_PROGRESS'
+  AND last_attempt_at IS NOT NULL
+  AND last_attempt_at < $1;

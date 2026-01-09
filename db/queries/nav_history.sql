@@ -11,6 +11,12 @@ WHERE scheme_code = $1
 ORDER BY nav_date DESC
 LIMIT 1;
 
+-- name: ListNavHistoryForScheme :many
+SELECT scheme_code, nav_date, nav_value, created_at
+FROM nav_history
+WHERE scheme_code = $1
+ORDER BY nav_date ASC;
+
 -- name: ListNavHistoryBetween :many
 SELECT scheme_code, nav_date, nav_value, created_at
 FROM nav_history

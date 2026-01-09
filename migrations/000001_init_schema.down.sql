@@ -9,4 +9,3 @@ DROP TABLE IF EXISTS sync_state;
 DROP TABLE IF EXISTS fund_analytics;
 DROP TABLE IF EXISTS nav_history;
 DROP TABLE IF EXISTS funds;
-

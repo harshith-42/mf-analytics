@@ -45,9 +45,18 @@ SELECT
   f.category,
   fa."window",
   fa.rolling_median,
-  fa.max_drawdown
+  fa.max_drawdown,
+  nav.nav_value AS current_nav,
+  nav.nav_date AS last_updated
 FROM fund_analytics fa
 JOIN funds f ON f.scheme_code = fa.scheme_code
+LEFT JOIN LATERAL (
+  SELECT nh.nav_value, nh.nav_date
+  FROM nav_history nh
+  WHERE nh.scheme_code = fa.scheme_code
+  ORDER BY nh.nav_date DESC
+  LIMIT 1
+) nav ON true
 WHERE f.category = $1
   AND fa."window" = $2
 ORDER BY fa.rolling_median DESC NULLS LAST
@@ -61,9 +70,18 @@ SELECT
   f.category,
   fa."window",
   fa.rolling_median,
-  fa.max_drawdown
+  fa.max_drawdown,
+  nav.nav_value AS current_nav,
+  nav.nav_date AS last_updated
 FROM fund_analytics fa
 JOIN funds f ON f.scheme_code = fa.scheme_code
+LEFT JOIN LATERAL (
+  SELECT nh.nav_value, nh.nav_date
+  FROM nav_history nh
+  WHERE nh.scheme_code = fa.scheme_code
+  ORDER BY nh.nav_date DESC
+  LIMIT 1
+) nav ON true
 WHERE f.category = $1
   AND fa."window" = $2
 ORDER BY fa.max_drawdown ASC NULLS LAST

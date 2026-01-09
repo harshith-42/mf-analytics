@@ -20,3 +20,7 @@ ON CONFLICT (scheme_code) DO UPDATE SET
   inception_date = EXCLUDED.inception_date,
   updated_at = NOW();
 
+-- name: CountFundsByCategory :one
+SELECT COUNT(*)::bigint
+FROM funds
+WHERE category = $1;
