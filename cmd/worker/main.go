@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"mf-analytics-service/internal/config"
+	"mf-analytics-service/internal/logging"
 	"mf-analytics-service/internal/mfapi"
 	"mf-analytics-service/internal/pipeline"
 	"mf-analytics-service/internal/ratelimiter"
@@ -26,30 +26,38 @@ func main() {
 		cancel()
 	}()
 
+	logger := logging.New(logging.Options{Service: "worker"})
+
 	appCfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config load", "error", err)
+		os.Exit(1)
 	}
 	if err := appCfg.Validate(); err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config validate", "error", err)
+		os.Exit(1)
 	}
 
 	pool, err := storage.NewPool(ctx, storage.Config{DatabaseURL: appCfg.DatabaseURL})
 	if err != nil {
-		log.Fatalf("db pool: %v", err)
+		logger.Error("db pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	rlCfg, err := appCfg.RateLimiterConfig()
 	if err != nil {
-		log.Fatalf("rate limiter config: %v", err)
+		logger.Error("rate limiter config", "error", err)
+		os.Exit(1)
 	}
+	rlCfg.Logger = logging.PrintfAdapter{L: logger}
 	rl, err := ratelimiter.New(pool, rlCfg)
 	if err != nil {
-		log.Fatalf("rate limiter: %v", err)
+		logger.Error("rate limiter", "error", err)
+		os.Exit(1)
 	}
 
-	mf := mfapi.New("https://api.mfapi.in", mfapi.WithRateLimiter(rl))
+	mf := mfapi.New("https://api.mfapi.in", mfapi.WithRateLimiter(rl), mfapi.WithLogger(logger))
 
 	staleAfter := 15 * time.Minute
 	if v := os.Getenv("SYNC_STALE_AFTER"); v != "" {
@@ -58,16 +66,17 @@ func main() {
 		}
 	}
 
-	runner := pipeline.NewBackfillRunner(pool, mf, staleAfter)
+	runner := pipeline.NewBackfillRunner(pool, mf, staleAfter, logger)
 
 	pollEvery := 2 * time.Second
 	for {
 		processed, err := runner.RunLatest(ctx)
 		if err != nil {
-			log.Fatalf("worker run: %v", err)
+			logger.Error("worker run", "error", err)
+			os.Exit(1)
 		}
 		if processed {
-			log.Printf("worker: finished a run; waiting for next")
+			logger.Info("worker finished a run; waiting for next")
 		}
 
 		select {

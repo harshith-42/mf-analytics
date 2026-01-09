@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +16,7 @@ import (
 
 	"mf-analytics-service/internal/config"
 	"mf-analytics-service/internal/db"
+	"mf-analytics-service/internal/logging"
 	"mf-analytics-service/internal/storage"
 )
 
@@ -30,17 +31,22 @@ func main() {
 		cancel()
 	}()
 
+	logger := logging.New(logging.Options{Service: "cron"})
+
 	appCfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config load", "error", err)
+		os.Exit(1)
 	}
 	if err := appCfg.Validate(); err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config validate", "error", err)
+		os.Exit(1)
 	}
 
 	pool, err := storage.NewPool(ctx, storage.Config{DatabaseURL: appCfg.DatabaseURL})
 	if err != nil {
-		log.Fatalf("db pool: %v", err)
+		logger.Error("db pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -58,25 +64,26 @@ func main() {
 
 	c := cron.New(cron.WithLocation(loc))
 	_, err = c.AddFunc(sched, func() {
-		if err := enqueueIncremental(ctx, pool); err != nil {
-			log.Printf("enqueue incremental: %v", err)
+		if err := enqueueIncremental(ctx, pool, logger); err != nil {
+			logger.Warn("enqueue incremental", "error", err)
 		}
 	})
 	if err != nil {
-		log.Fatalf("cron schedule: %v", err)
+		logger.Error("cron schedule", "error", err)
+		os.Exit(1)
 	}
 	c.Start()
 	defer c.Stop()
 
 	// Also attempt once at startup (helpful in interviews).
-	if err := enqueueIncremental(ctx, pool); err != nil {
-		log.Printf("enqueue incremental (startup): %v", err)
+	if err := enqueueIncremental(ctx, pool, logger); err != nil {
+		logger.Warn("enqueue incremental startup", "error", err)
 	}
 
 	<-ctx.Done()
 }
 
-func enqueueIncremental(ctx context.Context, pool *pgxpool.Pool) error {
+func enqueueIncremental(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -87,6 +94,9 @@ func enqueueIncremental(ctx context.Context, pool *pgxpool.Pool) error {
 
 	if _, err := q.GetLatestRunningSyncRun(ctx); err == nil {
 		// A run is already active; don't enqueue another.
+		if logger != nil {
+			logger.Info("skip enqueue: run already running")
+		}
 		return tx.Commit(ctx)
 	} else if err != nil && err != pgx.ErrNoRows {
 		return err
@@ -100,6 +110,9 @@ func enqueueIncremental(ctx context.Context, pool *pgxpool.Pool) error {
 		RunType: "INCREMENTAL",
 	}); err != nil {
 		return err
+	}
+	if logger != nil {
+		logger.Info("enqueued incremental run", "run_id", u.String())
 	}
 
 	// Only queue schemes that have been completed before (or previously failed) for incremental.

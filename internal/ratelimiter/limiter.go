@@ -30,6 +30,7 @@ type WindowConfig struct {
 type Config struct {
 	Now     func() time.Time
 	Windows []WindowConfig
+	Logger  Logger
 }
 
 func DefaultConfig() Config {
@@ -41,6 +42,11 @@ func DefaultConfig() Config {
 			{Type: WindowHour, Duration: time.Hour, Limit: 300},
 		},
 	}
+}
+
+// Logger is intentionally minimal so callers can use stdlib log.Logger, zap, etc.
+type Logger interface {
+	Printf(format string, args ...any)
 }
 
 type Limiter struct {
@@ -95,9 +101,11 @@ func (l *Limiter) Acquire(ctx context.Context) error {
 
 func (l *Limiter) TryAcquire(ctx context.Context) (wait time.Duration, ok bool, err error) {
 	now := l.cfg.Now().UTC()
+	l.logf("ratelimiter attempt now=%s", now.Format(time.RFC3339Nano))
 
 	tx, err := l.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
+		l.logf("ratelimiter tx_begin error=%v", err)
 		return 0, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -112,6 +120,7 @@ func (l *Limiter) TryAcquire(ctx context.Context) (wait time.Duration, ok bool, 
 			WindowStart:  toPgTimestamp(ws),
 			RequestCount: 0,
 		}); err != nil {
+			l.logf("ratelimiter init_state window=%s error=%v", w.Type, err)
 			return 0, false, err
 		}
 	}
@@ -124,13 +133,16 @@ func (l *Limiter) TryAcquire(ctx context.Context) (wait time.Duration, ok bool, 
 
 	evals := make([]windowEval, 0, len(l.cfg.Windows))
 	var maxWait time.Duration
+	var blockReason string
 
 	for _, w := range l.cfg.Windows {
 		st, err := q.GetRateLimiterStateForUpdate(ctx, string(w.Type))
 		if err != nil {
+			l.logf("ratelimiter read_for_update window=%s error=%v", w.Type, err)
 			return 0, false, err
 		}
 		if !st.WindowStart.Valid {
+			l.logf("ratelimiter invalid_window_start window=%s", w.Type)
 			return 0, false, fmt.Errorf("rate limiter window_start invalid for %q", w.Type)
 		}
 
@@ -149,15 +161,28 @@ func (l *Limiter) TryAcquire(ctx context.Context) (wait time.Duration, ok bool, 
 			}
 			if wWait > maxWait {
 				maxWait = wWait
+				blockReason = fmt.Sprintf(
+					"window=%s count=%d limit=%d window_start=%s until=%s",
+					w.Type,
+					st.RequestCount,
+					w.Limit,
+					ws.Format(time.RFC3339Nano),
+					until.Format(time.RFC3339Nano),
+				)
 			}
 			evals = append(evals, windowEval{cfg: w, windowStart: ws, nextCount: st.RequestCount})
+			l.logf("ratelimiter state window=%s window_start=%s count=%d limit=%d allowed=false",
+				w.Type, ws.Format(time.RFC3339Nano), st.RequestCount, w.Limit)
 			continue
 		}
 
 		evals = append(evals, windowEval{cfg: w, windowStart: ws, nextCount: st.RequestCount + 1})
+		l.logf("ratelimiter state window=%s window_start=%s count=%d limit=%d allowed=true",
+			w.Type, ws.Format(time.RFC3339Nano), st.RequestCount, w.Limit)
 	}
 
 	if maxWait > 0 {
+		l.logf("ratelimiter blocked wait=%s reason=%s", maxWait, blockReason)
 		return maxWait, false, nil
 	}
 
@@ -167,13 +192,16 @@ func (l *Limiter) TryAcquire(ctx context.Context) (wait time.Duration, ok bool, 
 			WindowStart:  toPgTimestamp(e.windowStart),
 			RequestCount: e.nextCount,
 		}); err != nil {
+			l.logf("ratelimiter write_state window=%s error=%v", e.cfg.Type, err)
 			return 0, false, err
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
+		l.logf("ratelimiter tx_commit error=%v", err)
 		return 0, false, err
 	}
+	l.logf("ratelimiter allowed")
 	return 0, true, nil
 }
 
@@ -186,3 +214,10 @@ func toPgTimestamp(t time.Time) pgtype.Timestamp {
 }
 
 var ErrRateLimiterMisconfigured = errors.New("rate limiter misconfigured")
+
+func (l *Limiter) logf(format string, args ...any) {
+	if l.cfg.Logger == nil {
+		return
+	}
+	l.cfg.Logger.Printf(format, args...)
+}

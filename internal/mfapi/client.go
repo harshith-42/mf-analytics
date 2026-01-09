@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +17,7 @@ type Client struct {
 	baseURL string
 	http    *http.Client
 	rl      *ratelimiter.Limiter
+	log     *slog.Logger
 }
 
 type Option func(*Client)
@@ -26,6 +28,10 @@ func WithHTTPClient(h *http.Client) Option {
 
 func WithRateLimiter(rl *ratelimiter.Limiter) Option {
 	return func(c *Client) { c.rl = rl }
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(c *Client) { c.log = l }
 }
 
 func New(baseURL string, opts ...Option) *Client {
@@ -112,8 +118,16 @@ func (c *Client) GetSchemeRange(
 }
 
 func (c *Client) getJSON(ctx context.Context, url string, dst any) error {
+	start := time.Now()
+	if c.log != nil {
+		c.log.Debug("mfapi request", "url", url)
+	}
+
 	if c.rl != nil {
 		if err := c.rl.Acquire(ctx); err != nil {
+			if c.log != nil {
+				c.log.Warn("mfapi rate_limited", "url", url, "error", err)
+			}
 			return err
 		}
 	}
@@ -125,15 +139,38 @@ func (c *Client) getJSON(ctx context.Context, url string, dst any) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if c.log != nil {
+			c.log.Error("mfapi http_do", "url", url, "error", err)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if c.log != nil {
+			c.log.Warn(
+				"mfapi non_2xx",
+				"url",
+				url,
+				"status",
+				resp.StatusCode,
+				"duration_ms",
+				time.Since(start).Milliseconds(),
+			)
+		}
 		return fmt.Errorf("mfapi %s: http %d", url, resp.StatusCode)
 	}
 
-	return json.NewDecoder(resp.Body).Decode(dst)
+	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+		if c.log != nil {
+			c.log.Error("mfapi decode", "url", url, "error", err)
+		}
+		return err
+	}
+	if c.log != nil {
+		c.log.Info("mfapi ok", "url", url, "duration_ms", time.Since(start).Milliseconds())
+	}
+	return nil
 }
 
 func containsFold(haystack, needle string) bool {

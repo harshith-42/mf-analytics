@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,35 +10,42 @@ import (
 
 	"mf-analytics-service/internal/api"
 	"mf-analytics-service/internal/config"
+	"mf-analytics-service/internal/logging"
 	"mf-analytics-service/internal/storage"
 )
 
 func main() {
 	ctx := context.Background()
 
+	logger := logging.New(logging.Options{Service: "api"})
+
 	appCfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config load", "error", err)
+		os.Exit(1)
 	}
 	if err := appCfg.Validate(); err != nil {
-		log.Fatalf("config: %v", err)
+		logger.Error("config validate", "error", err)
+		os.Exit(1)
 	}
 
 	cfg := storage.Config{DatabaseURL: appCfg.DatabaseURL}
 
 	pool, err := storage.NewPool(ctx, cfg)
 	if err != nil {
-		log.Fatalf("db pool: %v", err)
+		logger.Error("db pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	addr := appCfg.HTTPAddr
-	srv := api.NewServer(pool)
+	srv := api.NewServer(pool, logger)
 
 	go func() {
-		log.Printf("api listening on %s", addr)
+		logger.Info("api listening", "addr", addr)
 		if err := srv.ListenAndServe(addr); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+			logger.Error("listen", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -49,5 +55,7 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("shutdown", "error", err)
+	}
 }

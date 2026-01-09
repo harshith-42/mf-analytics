@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -20,17 +21,19 @@ type BackfillRunner struct {
 	pool       *pgxpool.Pool
 	mf         *mfapi.Client
 	staleAfter time.Duration
+	log        *slog.Logger
 }
 
 func NewBackfillRunner(
 	pool *pgxpool.Pool,
 	mf *mfapi.Client,
 	staleAfter time.Duration,
+	logger *slog.Logger,
 ) *BackfillRunner {
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Minute
 	}
-	return &BackfillRunner{pool: pool, mf: mf, staleAfter: staleAfter}
+	return &BackfillRunner{pool: pool, mf: mf, staleAfter: staleAfter, log: logger}
 }
 
 // RunLatest processes the latest RUNNING run until drained and marks it completed/failed.
@@ -46,6 +49,9 @@ func (r *BackfillRunner) RunLatest(ctx context.Context) (processed bool, err err
 		return false, err
 	}
 	processed = true
+	if r.log != nil {
+		r.log.Info("run started", "run_type", run.RunType)
+	}
 
 	// Requeue schemes left IN_PROGRESS by previous crashed workers.
 	cutoff := time.Now().Add(-r.staleAfter)
@@ -69,6 +75,9 @@ func (r *BackfillRunner) RunLatest(ctx context.Context) (processed bool, err err
 					}
 				}
 				if failed > 0 {
+					if r.log != nil {
+						r.log.Warn("run finished with failures", "failed", failed)
+					}
 					return processed, q.FinishSyncRunFailure(ctx, db.FinishSyncRunFailureParams{
 						RunID: run.RunID,
 						ErrorSummary: pgtype.Text{
@@ -77,9 +86,24 @@ func (r *BackfillRunner) RunLatest(ctx context.Context) (processed bool, err err
 						},
 					})
 				}
+				if r.log != nil {
+					r.log.Info("run finished successfully")
+				}
 				return processed, q.FinishSyncRunSuccess(ctx, run.RunID)
 			}
 			return processed, err
+		}
+
+		if r.log != nil {
+			r.log.Info(
+				"claimed scheme",
+				"scheme_code",
+				st.SchemeCode,
+				"run_type",
+				run.RunType,
+				"last_synced_valid",
+				st.LastSyncedDate.Valid,
+			)
 		}
 
 		var perSchemeErr error
@@ -96,9 +120,15 @@ func (r *BackfillRunner) RunLatest(ctx context.Context) (processed bool, err err
 		}
 
 		if perSchemeErr != nil {
+			if r.log != nil {
+				r.log.Warn("scheme failed", "scheme_code", st.SchemeCode, "error", perSchemeErr)
+			}
 			// keep going; run can still succeed even if some schemes fail (status will show FAILED).
 			// We only mark the overall run failed if DB errors prevent progress.
 			continue
+		}
+		if r.log != nil {
+			r.log.Info("scheme completed", "scheme_code", st.SchemeCode)
 		}
 	}
 }
